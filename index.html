@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Private VPN Resilience — автоматическое развёртывание трёх независимых VPN-транспортов на Ubuntu VPS и Keenetic с Entware." />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0a0814" />
+    <title>Private VPN Resilience — три транспорта, один устойчивый маршрут</title>
+    <link rel="stylesheet" href="./promo/styles.css" />
+    <script src="./promo/script.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#content">К содержанию</a>
+    <div class="read-progress" aria-hidden="true"><span></span></div>
+
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="Private VPN Resilience — наверх">
+        <span class="brand-mark" aria-hidden="true">PVR</span>
+        <span class="brand-name">Private VPN Resilience</span>
+      </a>
+      <nav class="header-nav" aria-label="Основная навигация">
+        <a href="#architecture">Архитектура</a>
+        <a href="#prepare">Подготовка</a>
+        <a href="#launch">Запуск</a>
+      </nav>
+      <div class="header-actions">
+        <a class="repo-link" href="./README.md">README</a>
+        <button class="theme-toggle" type="button" aria-label="Переключить тему" title="Переключить тему">
+          <span class="theme-icon" aria-hidden="true"></span>
+        </button>
+      </div>
+    </header>
+
+    <main id="content">
+      <div class="page-shell" id="top">
+        <aside class="toc" aria-label="Содержание страницы">
+          <div class="toc-head">
+            <span>Содержание</span>
+            <span class="toc-count">08</span>
+          </div>
+          <nav>
+            <a href="#idea" class="active">Зачем три транспорта</a>
+            <a href="#architecture">Как устроена система</a>
+            <a href="#requirements">Что понадобится</a>
+            <a href="#prepare">Подготовка Keenetic</a>
+            <a href="#install">Установка скила</a>
+            <a href="#launch">Запуск агента</a>
+            <a href="#verification">Как проверяется результат</a>
+            <a href="#limits">Границы решения</a>
+          </nav>
+          <div class="toc-status">
+            <span class="pulse-dot"></span>
+            <span>Статическая страница<br />без внешних зависимостей</span>
+          </div>
+        </aside>
+
+        <article class="article">
+          <header class="hero">
+            <div class="eyebrow">
+              <span>Open source · Agent Skill</span>
+              <span>Ubuntu 24.04 · Keenetic · Entware</span>
+            </div>
+            <h1>Три VPN-транспорта.<br /><span>Один устойчивый маршрут.</span></h1>
+            <p class="lead">
+              Агент разворачивает Hysteria2, VLESS Reality и AmneziaWG, объединяет их
+              политикой HydraRoute и проверяет не зелёные индикаторы, а реальный трафик,
+              переключение при отказе и восстановление после перезапуска.
+            </p>
+            <div class="hero-actions">
+              <a class="button button-primary" href="#prepare">Начать подготовку</a>
+              <a class="button button-ghost" href="./skills/private-vpn-resilience/SKILL.md">Открыть SKILL.md</a>
+            </div>
+            <div class="hero-meta" aria-label="Ключевые характеристики">
+              <div><strong>3</strong><span>независимых<br />транспорта</span></div>
+              <div><strong>1</strong><span>политика<br />маршрутизации</span></div>
+              <div><strong>0</strong><span>тихих обходов<br />через ISP</span></div>
+            </div>
+          </header>
+
+          <figure class="topology-card" aria-labelledby="topology-caption">
+            <div class="topology-grid">
+              <div class="node node-client">
+                <span class="node-kicker">LAN</span>
+                <strong>Устройства</strong>
+                <small>без отдельного VPN-клиента</small>
+              </div>
+              <div class="flow flow-a" aria-hidden="true"><span></span></div>
+              <div class="node node-router">
+                <span class="node-kicker">Keenetic + Entware</span>
+                <strong>HydraRoute</strong>
+                <small>health checks · failover</small>
+              </div>
+              <div class="flow flow-b" aria-hidden="true"><span></span></div>
+              <div class="node node-vps">
+                <span class="node-kicker">Ubuntu VPS</span>
+                <strong>3x-ui</strong>
+                <small>три production-inbound</small>
+              </div>
+            </div>
+            <div class="transport-rail" aria-label="Порядок VPN-транспортов">
+              <div class="transport hy2"><span>01</span><strong>Hysteria2</strong><small>UDP · obfs · port hopping</small></div>
+              <div class="transport vless"><span>02</span><strong>VLESS Reality</strong><small>TCP · TLS-like fallback</small></div>
+              <div class="transport awg"><span>03</span><strong>AmneziaWG</strong><small>kernel tunnel · independent path</small></div>
+            </div>
+            <figcaption id="topology-caption">
+              При отказе активного пути HydraRoute выбирает следующий. Если недоступны все три,
+              выбранный трафик не уходит напрямую через провайдера.
+            </figcaption>
+          </figure>
+
+          <section id="idea" class="content-section">
+            <div class="section-index">01</div>
+            <div class="section-copy">
+              <p class="section-label">Идея</p>
+              <h2>Один протокол — одна точка отказа</h2>
+              <p>
+                Один туннель может быть быстрым и стабильным сегодня, а завтра перестать
+                работать из-за фильтрации UDP, изменения TLS-handshake, ошибки клиента или
+                деградации конкретного маршрута. Перенастройка одного и того же протокола
+                не создаёт настоящего резерва.
+              </p>
+              <p>
+                Private VPN Resilience строит три технически разных пути и сохраняет их
+                независимость. Агент меняет по одному транспорту, создаёт rollback anchors
+                и не объявляет успех по статусу <code>RUNNING</code> в панели.
+              </p>
+              <div class="principle-grid">
+                <div><span>Разные сети</span><strong>UDP + TCP</strong><p>Отказ одного класса трафика не выключает всю схему.</p></div>
+                <div><span>Разные клиенты</span><strong>Native + Xray + Kernel</strong><p>Ошибка одной реализации не распространяется на остальные.</p></div>
+                <div><span>Проверяемый резерв</span><strong>Health check + failover</strong><p>Маршрут считается живым только после реального запроса.</p></div>
+              </div>
+            </div>
+          </section>
+
+          <section id="architecture" class="content-section">
+            <div class="section-index">02</div>
+            <div class="section-copy">
+              <p class="section-label">Архитектура</p>
+              <h2>Что агент развернёт</h2>
+              <div class="stack-list">
+                <article>
+                  <span class="stack-number">01</span>
+                  <div><h3>Hysteria2</h3><p>Основной UDP-путь через официальный native-клиент, Salamander и случайную смену портов.</p></div>
+                  <code>Proxy0 · :1082</code>
+                </article>
+                <article>
+                  <span class="stack-number">02</span>
+                  <div><h3>VLESS Reality</h3><p>Резервный TCP-путь через официальный Xray и REALITY с проверенным uTLS fingerprint.</p></div>
+                  <code>Proxy1 · :1083</code>
+                </article>
+                <article>
+                  <span class="stack-number">03</span>
+                  <div><h3>AmneziaWG</h3><p>Независимый kernel-туннель через AWG Manager со своей проверкой доступности.</p></div>
+                  <code>OpkgTun10</code>
+                </article>
+              </div>
+              <div class="callout callout-info">
+                <strong>Основной сценарий</strong>
+                <p>Ubuntu VPS работает публичным сервером, Keenetic — клиентом и маршрутизатором. В скиле также есть процедуры для Keenetic в роли публичного VPN-сервера.</p>
+              </div>
+            </div>
+          </section>
+
+          <section id="requirements" class="content-section">
+            <div class="section-index">03</div>
+            <div class="section-copy">
+              <p class="section-label">До запуска</p>
+              <h2>Что понадобится</h2>
+              <div class="requirements-grid">
+                <article>
+                  <span class="card-tag">SERVER</span>
+                  <h3>Ubuntu VPS</h3>
+                  <ul>
+                    <li>Публичный IPv4</li>
+                    <li>Ubuntu 24.04 LTS</li>
+                    <li>root или полный sudo</li>
+                    <li>Рабочие DNS и время</li>
+                  </ul>
+                </article>
+                <article>
+                  <span class="card-tag">ROUTER</span>
+                  <h3>Keenetic</h3>
+                  <ul>
+                    <li>USB и поддержка OPKG</li>
+                    <li>Entware в <code>/opt</code></li>
+                    <li>SSH-доступ root</li>
+                    <li>Резервная копия</li>
+                  </ul>
+                </article>
+                <article>
+                  <span class="card-tag">CONTROL</span>
+                  <h3>Компьютер</h3>
+                  <ul>
+                    <li>Codex или OpenCode</li>
+                    <li>Доступ к двум SSH-хостам</li>
+                    <li>Временный SSH-ключ</li>
+                    <li>Отдельное LAN-устройство</li>
+                  </ul>
+                </article>
+              </div>
+              <div class="callout callout-warning">
+                <strong>Не нужно готовить вручную</strong>
+                <p>3x-ui, AWG Manager, HydraRoute, Xray, Hysteria и туннельные профили установит агент. До его запуска нужен только рабочий Entware на роутере.</p>
+              </div>
+            </div>
+          </section>
+
+          <section id="prepare" class="content-section guide-section">
+            <div class="section-index">04</div>
+            <div class="section-copy">
+              <p class="section-label">Подготовка Keenetic</p>
+              <h2>Четыре шага до передачи работы агенту</h2>
+
+              <div class="step">
+                <div class="step-head"><span>1</span><div><h3>Добавьте компоненты KeeneticOS</h3><p>Откройте «Параметры системы → Изменить набор компонентов».</p></div></div>
+                <ul class="check-list">
+                  <li>Файловая система Ext и утилиты для Ext</li>
+                  <li>Поддержка открытых пакетов — OPKG</li>
+                  <li>DNS-over-TLS и DNS-over-HTTPS</li>
+                  <li>Доступные WireGuard, Netfilter/Xtables и Ping Check</li>
+                </ul>
+                <div class="image-pair">
+                  <figure><button class="image-button" type="button" data-image="./images/img-1.png" aria-label="Открыть изображение с DNS-компонентами"><img src="./images/img-1.png" alt="Компоненты DNS-over-TLS и DNS-over-HTTPS в KeeneticOS" loading="lazy" /></button><figcaption>Защищённые DNS-компоненты</figcaption></figure>
+                  <figure><button class="image-button" type="button" data-image="./images/img-7.png" aria-label="Открыть изображение с компонентом OPKG"><img src="./images/img-7.png" alt="Компонент поддержки открытых пакетов OPKG в KeeneticOS" loading="lazy" /></button><figcaption>Поддержка открытых пакетов</figcaption></figure>
+                </div>
+              </div>
+
+              <div class="step">
+                <div class="step-head"><span>2</span><div><h3>Подготовьте USB-накопитель</h3><p>Выделенный накопитель отформатируйте в EXT4 средствами Keenetic.</p></div></div>
+                <div class="callout callout-danger"><strong>Форматирование удалит данные</strong><p>До начала сохраните всё нужное с выбранного раздела.</p></div>
+                <figure class="wide-image"><button class="image-button" type="button" data-image="./images/img-2.png" aria-label="Открыть изображение с Ext-компонентами"><img src="./images/img-2.png" alt="Компоненты файловой системы Ext в KeeneticOS" loading="lazy" /></button><figcaption>Файловая система Ext и утилиты для её обслуживания</figcaption></figure>
+              </div>
+
+              <div class="step">
+                <div class="step-head"><span>3</span><div><h3>Определите архитектуру и установите Entware</h3><p>Установщик должен точно соответствовать процессору роутера.</p></div></div>
+                <figure class="wide-image"><button class="image-button" type="button" data-image="./images/img-3.png" aria-label="Открыть схему архитектур"><img src="./images/img-3.png" alt="Соответствие процессоров Keenetic архитектурам Entware" loading="lazy" /></button><figcaption>Чип роутера определяет архитектуру пакетов</figcaption></figure>
+                <p>В Web CLI введите <code>opkg disk</code>, нажмите <kbd>Tab</kbd> и выберите накопитель, имя которого начинается с EXT4.</p>
+                <figure class="wide-image"><button class="image-button" type="button" data-image="./images/img-6.png" aria-label="Открыть пример выбора накопителя"><img src="./images/img-6.png" alt="Выбор EXT4-накопителя командой opkg disk в Web CLI" loading="lazy" /></button><figcaption>Выбор внешнего накопителя в Web CLI</figcaption></figure>
+                <div class="command-tabs" role="group" aria-label="Команды установки Entware">
+                  <div class="command-block"><span>Mips</span><code>opkg disk &lt;накопитель&gt; https://bin.entware.net/mipssf-k3.4/installer/mips-installer.tar.gz</code><button type="button" class="copy-button" data-copy="opkg disk &lt;накопитель&gt; https://bin.entware.net/mipssf-k3.4/installer/mips-installer.tar.gz">Копировать</button></div>
+                  <div class="command-block"><span>Mipsel</span><code>opkg disk &lt;накопитель&gt; https://bin.entware.net/mipselsf-k3.4/installer/mipsel-installer.tar.gz</code><button type="button" class="copy-button" data-copy="opkg disk &lt;накопитель&gt; https://bin.entware.net/mipselsf-k3.4/installer/mipsel-installer.tar.gz">Копировать</button></div>
+                  <div class="command-block"><span>Aarch64</span><code>opkg disk &lt;накопитель&gt; https://bin.entware.net/aarch64-k3.10/installer/aarch64-installer.tar.gz</code><button type="button" class="copy-button" data-copy="opkg disk &lt;накопитель&gt; https://bin.entware.net/aarch64-k3.10/installer/aarch64-installer.tar.gz">Копировать</button></div>
+                </div>
+                <figure class="wide-image compact"><button class="image-button" type="button" data-image="./images/img-5.png" aria-label="Открыть системный журнал"><img src="./images/img-5.png" alt="Завершение установки Entware со статусом 5 из 5" loading="lazy" /></button><figcaption>Дождитесь статуса 5 из 5 в системном журнале</figcaption></figure>
+              </div>
+
+              <div class="step">
+                <div class="step-head"><span>4</span><div><h3>Проверьте SSH и <code>/opt</code></h3><p>Порт Entware SSH указан в системном журнале.</p></div></div>
+                <div class="terminal-block">
+                  <div class="terminal-head"><span></span><span></span><span></span><small>router shell</small></div>
+                  <pre><code>ssh root@192.168.1.1 -p 222
+passwd
+mount | grep ' /opt '
+opkg update</code></pre>
+                  <button type="button" class="copy-button terminal-copy" data-copy="ssh root@192.168.1.1 -p 222&#10;passwd&#10;mount | grep ' /opt '&#10;opkg update">Копировать</button>
+                </div>
+                <p class="muted">Адрес и порт в примере замените своими. Если установщик выдал стандартный пароль, смените его до передачи доступа агенту.</p>
+              </div>
+            </div>
+          </section>
+
+          <section id="install" class="content-section">
+            <div class="section-index">05</div>
+            <div class="section-copy">
+              <p class="section-label">Установка</p>
+              <h2>Подключите скил к своему агенту</h2>
+              <div class="install-switcher" role="tablist" aria-label="Способ установки">
+                <button type="button" role="tab" aria-selected="true" data-tab="codex">Codex</button>
+                <button type="button" role="tab" aria-selected="false" data-tab="opencode">OpenCode</button>
+              </div>
+              <div class="install-panel active" data-panel="codex" role="tabpanel">
+                <div class="terminal-block">
+                  <div class="terminal-head"><span></span><span></span><span></span><small>Codex</small></div>
+                  <pre><code>mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+cp -R skills/private-vpn-resilience \
+  "${CODEX_HOME:-$HOME/.codex}/skills/"</code></pre>
+                  <button type="button" class="copy-button terminal-copy" data-copy="mkdir -p &quot;${CODEX_HOME:-$HOME/.codex}/skills&quot;&#10;cp -R skills/private-vpn-resilience &quot;${CODEX_HOME:-$HOME/.codex}/skills/&quot;">Копировать</button>
+                </div>
+                <p>Откройте новую задачу после копирования. Отдельный agent-файл для Codex не нужен.</p>
+              </div>
+              <div class="install-panel" data-panel="opencode" role="tabpanel" hidden>
+                <div class="terminal-block">
+                  <div class="terminal-head"><span></span><span></span><span></span><small>OpenCode</small></div>
+                  <pre><code>mkdir -p "$HOME/.agents/skills" \
+  "$HOME/.config/opencode/agents"
+cp -R skills/private-vpn-resilience "$HOME/.agents/skills/"
+cp agents/private-vpn-bootstrap.md \
+  "$HOME/.config/opencode/agents/"</code></pre>
+                  <button type="button" class="copy-button terminal-copy" data-copy="mkdir -p &quot;$HOME/.agents/skills&quot; &quot;$HOME/.config/opencode/agents&quot;&#10;cp -R skills/private-vpn-resilience &quot;$HOME/.agents/skills/&quot;&#10;cp agents/private-vpn-bootstrap.md &quot;$HOME/.config/opencode/agents/&quot;">Копировать</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="launch" class="content-section">
+            <div class="section-index">06</div>
+            <div class="section-copy">
+              <p class="section-label">Запуск</p>
+              <h2>Сначала чек-лист. Затем развёртывание.</h2>
+              <div class="prompt-card">
+                <span class="prompt-label">Codex · безопасный режим</span>
+                <code>$private-vpn-resilience init</code>
+                <button type="button" class="copy-button" data-copy="$private-vpn-resilience init">Копировать</button>
+              </div>
+              <p>Команда <code>init</code> только показывает предварительные условия. Она не подключается по SSH, не запрашивает секреты и ничего не меняет.</p>
+              <div class="prompt-card prompt-primary">
+                <span class="prompt-label">Codex · начать работу</span>
+                <code>$private-vpn-resilience Разверни VPN с нуля.</code>
+                <button type="button" class="copy-button" data-copy="$private-vpn-resilience Разверни VPN с нуля.">Копировать</button>
+              </div>
+              <div class="agent-flow">
+                <div><span>01</span><strong>Запрос доступов</strong><p>VPS и роутер, SSH-порты, пользователи и временный ключ.</p></div>
+                <div><span>02</span><strong>Read-only preflight</strong><p>ОС, архитектура, порты, firewall, модули, место, память, DNS и время.</p></div>
+                <div><span>03</span><strong>Rollback anchors</strong><p>Резервные копии и манифест до первого изменения.</p></div>
+                <div><span>04</span><strong>Поэтапная установка</strong><p>Один транспорт за раз, без одновременной потери всех путей.</p></div>
+              </div>
+              <div class="callout callout-info"><strong>Доступы</strong><p>Передавайте путь к временному приватному SSH-ключу, а не его содержимое. После завершения отзовите ключ или временный пароль.</p></div>
+            </div>
+          </section>
+
+          <section id="verification" class="content-section">
+            <div class="section-index">07</div>
+            <div class="section-copy">
+              <p class="section-label">Приёмка</p>
+              <h2><code>RUNNING</code> ещё не значит «работает»</h2>
+              <p>Агент завершает установку только после прохождения измеримых проверок.</p>
+              <div class="verification-list">
+                <div><span>CONFIG</span><p>Конфигурации парсятся, сервисы поднимаются после restart/reboot.</p></div>
+                <div><span>TRAFFIC</span><p>HTTP 204 проходит через каждый выбранный интерфейс.</p></div>
+                <div><span>LOAD</span><p>Контрольная загрузка не увеличивает UDP drops и <code>RcvbufErrors</code>.</p></div>
+                <div><span>SOAK</span><p>Пять–тридцать минут работы без таймаутов и ложного состояния «up».</p></div>
+                <div><span>FAILOVER</span><p>Отключение активного пути переводит трафик на следующий транспорт.</p></div>
+                <div><span>RECOVERY</span><p>После возврата сервиса маршрут восстанавливается без ручного ремонта.</p></div>
+              </div>
+              <div class="acceptance-card">
+                <div class="acceptance-mark">LAN</div>
+                <div><strong>Финальная проверка — с отдельного устройства</strong><p>Ноутбук или телефон должен быть подключён к LAN роутера без локального VPN. Иначе тест покажет работу постороннего туннеля, а не HydraRoute.</p></div>
+              </div>
+            </div>
+          </section>
+
+          <section id="limits" class="content-section">
+            <div class="section-index">08</div>
+            <div class="section-copy">
+              <p class="section-label">Эксплуатация</p>
+              <h2>Что решение гарантирует — и чего не обещает</h2>
+              <div class="limits-grid">
+                <div><strong>Да</strong><p>Независимые пути, воспроизводимая установка, failover, rollback и диагностика по фактам.</p></div>
+                <div><strong>Нет</strong><p>Вечной устойчивости к новым методам фильтрации и совместимости с любой моделью Keenetic.</p></div>
+              </div>
+              <p>Параметры, работающие у одного провайдера, могут вести себя иначе в другой сети. Скил сначала собирает измерения и только затем меняет MTU, fingerprint, маскировку или интервалы смены портов.</p>
+              <div class="final-cta">
+                <p class="section-label">Готовы начать?</p>
+                <h2>Подготовьте два SSH-доступа.<br />Остальное сделает агент.</h2>
+                <div class="hero-actions">
+                  <a class="button button-primary" href="./README.md">Полная инструкция в README</a>
+                  <a class="button button-ghost" href="./skills/private-vpn-resilience/references/prerequisites.md">Открыть prerequisites</a>
+                </div>
+              </div>
+              <div class="disclaimer">
+                <strong>Ответственность</strong>
+                <p>Материал предназначен для администрирования собственной инфраструктуры. Пользователь самостоятельно отвечает за соблюдение законодательства, правил VPS-провайдера и используемых сервисов.</p>
+              </div>
+            </div>
+          </section>
+        </article>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <span>Private VPN Resilience</span>
+      <span>Agent · Skill · Runbooks · Scripts</span>
+      <a href="#top">Наверх ↑</a>
+    </footer>
+
+    <dialog class="image-modal" aria-label="Просмотр изображения">
+      <button type="button" class="modal-close" aria-label="Закрыть">×</button>
+      <img src="" alt="" />
+    </dialog>
+    <div class="toast" role="status" aria-live="polite">Скопировано</div>
+  </body>
+</html>

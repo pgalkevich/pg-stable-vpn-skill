@@ -270,6 +270,19 @@ opencode --agent private-vpn-bootstrap
   Перед использованием проверьте, соответствуют ли они вашей политике
   маршрутизации.
 
+## Промо-страница
+
+Готовая статическая страница находится в корневом [`index.html`](index.html).
+Она не требует сборки, внешних шрифтов или CDN: файл можно открыть напрямую в
+браузере. Для корректного перехода по ссылкам на README и материалы скила
+удобнее запустить локальный сервер из корня репозитория:
+
+```bash
+python3 -m http.server 8765
+```
+
+После этого откройте `http://127.0.0.1:8765/`.
+
 ## Структура репозитория
 
 ```text
@@ -277,6 +290,10 @@ opencode --agent private-vpn-bootstrap
 ├── agents/
 │   └── private-vpn-bootstrap.md
 ├── images/
+├── index.html
+├── promo/
+│   ├── script.js
+│   └── styles.css
 ├── skills/
 │   └── private-vpn-resilience/
 │       ├── SKILL.md
