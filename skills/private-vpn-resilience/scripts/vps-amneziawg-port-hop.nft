@@ -1,0 +1,6 @@
+table inet amneziawg_port_hop {
+    chain prerouting {
+        type nat hook prerouting priority dstnat; policy accept;
+        iifname "eth0" udp dport 30000-30100 counter redirect to :51888
+    }
+}

@@ -1,0 +1,14 @@
+.DS_Store
+.idea/
+*.log
+*.tmp
+
+# Deployment-local material must never enter the repository.
+*.key
+*.pem
+*.p12
+*.pfx
+*credentials*
+*secrets*
+deployment.local.md
+install-result.env

@@ -1,0 +1,14 @@
+[Unit]
+Description=Hysteria2 UDP port hopping redirect
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=-/usr/sbin/nft delete table inet hysteria_port_hop
+ExecStart=/usr/sbin/nft -f /etc/nftables.d/hysteria-port-hop.nft
+ExecStop=-/usr/sbin/nft delete table inet hysteria_port_hop
+
+[Install]
+WantedBy=multi-user.target

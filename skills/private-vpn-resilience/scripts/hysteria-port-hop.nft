@@ -1,0 +1,6 @@
+table inet hysteria_port_hop {
+    chain prerouting {
+        type nat hook prerouting priority dstnat; policy accept;
+        iifname "eth0" udp dport 20000-20100 counter redirect to :8443
+    }
+}

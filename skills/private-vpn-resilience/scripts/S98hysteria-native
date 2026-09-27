@@ -1,0 +1,51 @@
+#!/bin/sh
+
+BIN=/opt/bin/hysteria-native
+CONFIG=/opt/etc/hysteria-native/config.json
+PIDFILE=/var/run/hysteria-native.pid
+LOGFILE=/opt/var/log/hysteria-native.log
+
+is_running() {
+    pid=$(cat "$PIDFILE" 2>/dev/null || true)
+    [ -n "$pid" ] && [ -d "/proc/$pid" ] && grep -q "$BIN" "/proc/$pid/cmdline" 2>/dev/null
+}
+
+start() {
+    if is_running; then
+        echo "Hysteria Native Client already running (PID $pid)"
+        return 0
+    fi
+    rm -f "$PIDFILE"
+    mkdir -p /opt/var/log /var/run
+    start-stop-daemon -S -b -m -p "$PIDFILE" -x "$BIN" -O "$LOGFILE" -- client -c "$CONFIG"
+    sleep 2
+    if is_running; then
+        echo "Hysteria Native Client started (PID $pid)"
+        return 0
+    fi
+    echo "Hysteria Native Client failed to start"
+    return 1
+}
+
+stop() {
+    if is_running; then
+        start-stop-daemon -K -p "$PIDFILE" -x "$BIN" -s TERM
+    fi
+    rm -f "$PIDFILE"
+    echo "Hysteria Native Client stopped"
+}
+
+case "${1:-}" in
+    start) start ;;
+    stop) stop ;;
+    restart) stop; sleep 1; start ;;
+    status)
+        if is_running; then
+            echo "Hysteria Native Client running (PID $pid)"
+        else
+            echo "Hysteria Native Client stopped"
+            exit 1
+        fi
+        ;;
+    *) echo "Usage: $0 {start|stop|restart|status}"; exit 1 ;;
+esac

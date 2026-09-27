@@ -1,0 +1,4 @@
+interface:
+  display_name: "Private VPN Resilience"
+  short_description: "Bootstrap and maintain a resilient three-protocol private VPN"
+  default_prompt: "Use $private-vpn-resilience to deploy or maintain a stable three-protocol VPN on an Ubuntu VPS and an Entware-enabled Keenetic without exposing credentials."

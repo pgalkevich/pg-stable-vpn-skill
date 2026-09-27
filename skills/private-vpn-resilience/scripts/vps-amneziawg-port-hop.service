@@ -1,0 +1,14 @@
+[Unit]
+Description=AmneziaWG UDP port hopping redirect
+After=network-online.target x-ui.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=-/usr/sbin/nft delete table inet amneziawg_port_hop
+ExecStart=/usr/sbin/nft -f /etc/nftables.d/amneziawg-port-hop.nft
+ExecStop=-/usr/sbin/nft delete table inet amneziawg_port_hop
+
+[Install]
+WantedBy=multi-user.target
