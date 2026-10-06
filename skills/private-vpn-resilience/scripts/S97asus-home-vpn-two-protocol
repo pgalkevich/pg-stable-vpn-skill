@@ -1,0 +1,142 @@
+#!/bin/sh
+
+PATH=/opt/bin:/opt/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+unset LD_LIBRARY_PATH
+CONFIG=/opt/etc/home-vpn/config.json
+PIDFILE=/opt/var/run/home-vpn.pid
+LOG=/opt/var/log/home-vpn.log
+CHAIN=HOMEVPN
+KILLSWITCH=HOMEVPN_KILLSWITCH
+KILLSWITCH_FLAG=/opt/etc/home-vpn/fail-closed.enabled
+MARK=0x66
+TABLE=166
+LAN_IF=br0
+WAN_IF="$(nvram get wan0_ifname 2>/dev/null)"
+[ -n "$WAN_IF" ] || WAN_IF=eth4
+
+kill_switch_start() {
+    [ -e "$KILLSWITCH_FLAG" ] || { kill_switch_stop; return 0; }
+    iptables -N "$KILLSWITCH" 2>/dev/null || true
+    iptables -F "$KILLSWITCH"
+    iptables -A "$KILLSWITCH" -j REJECT --reject-with icmp-net-unreachable
+    while iptables -D FORWARD -i "$LAN_IF" -o "$WAN_IF" -j "$KILLSWITCH" 2>/dev/null; do :; done
+    iptables -I FORWARD 1 -i "$LAN_IF" -o "$WAN_IF" -j "$KILLSWITCH"
+}
+
+kill_switch_stop() {
+    while iptables -D FORWARD -i "$LAN_IF" -o "$WAN_IF" -j "$KILLSWITCH" 2>/dev/null; do :; done
+    iptables -F "$KILLSWITCH" 2>/dev/null || true
+    iptables -X "$KILLSWITCH" 2>/dev/null || true
+}
+
+kill_switch_ready() {
+    [ -e "$KILLSWITCH_FLAG" ] || return 1
+    iptables -C FORWARD -i "$LAN_IF" -o "$WAN_IF" -j "$KILLSWITCH" 2>/dev/null || return 1
+    iptables -C "$KILLSWITCH" -j REJECT --reject-with icmp-net-unreachable 2>/dev/null
+}
+
+kill_switch_ensure() {
+    if [ -e "$KILLSWITCH_FLAG" ]; then
+        kill_switch_ready || kill_switch_start
+    else
+        kill_switch_stop
+    fi
+}
+
+firewall_stop() {
+    while iptables -t mangle -D PREROUTING -i "$LAN_IF" -j "$CHAIN" 2>/dev/null; do :; done
+    iptables -t mangle -F "$CHAIN" 2>/dev/null || true
+    iptables -t mangle -X "$CHAIN" 2>/dev/null || true
+    while ip rule del fwmark "$MARK"/0xff table "$TABLE" priority 110 2>/dev/null; do :; done
+    ip route flush table "$TABLE" 2>/dev/null || true
+}
+
+firewall_start() {
+    # The WAN guard is installed first and is intentionally never removed by stop/restart.
+    kill_switch_start
+    firewall_stop
+    modprobe xt_TPROXY 2>/dev/null || true
+    modprobe xt_socket 2>/dev/null || true
+    ip route add local 0.0.0.0/0 dev lo table "$TABLE"
+    ip rule add fwmark "$MARK"/0xff table "$TABLE" priority 110
+    iptables -t mangle -N "$CHAIN"
+    for net in 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.168.0.0/16 198.18.0.0/15 224.0.0.0/4 240.0.0.0/4; do
+        iptables -t mangle -A "$CHAIN" -d "$net" -j RETURN
+    done
+    iptables -t mangle -A "$CHAIN" -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port 7893 --tproxy-mark "$MARK"/0xff
+    iptables -t mangle -A "$CHAIN" -p udp -j TPROXY --on-ip 127.0.0.1 --on-port 7893 --tproxy-mark "$MARK"/0xff
+    iptables -t mangle -A PREROUTING -i "$LAN_IF" -j "$CHAIN"
+}
+
+firewall_ready() {
+    iptables -t mangle -C PREROUTING -i "$LAN_IF" -j "$CHAIN" 2>/dev/null || return 1
+    iptables -t mangle -S "$CHAIN" 2>/dev/null | grep -q -- "-p tcp -j TPROXY" || return 1
+    iptables -t mangle -S "$CHAIN" 2>/dev/null | grep -q -- "-p udp -j TPROXY" || return 1
+    ip rule show | grep -q "^110:.*fwmark 0x66/0xff lookup ${TABLE}" || return 1
+    ip route show table "$TABLE" | grep -q '^local default dev lo' || return 1
+}
+
+start_service() {
+    # Fail closed even when config validation or daemon startup fails.
+    kill_switch_ensure
+    /opt/etc/init.d/S96awg3-userspace start || return 1
+    [ -r "$CONFIG" ] || { echo "Missing $CONFIG" >&2; return 1; }
+    sing-box check -c "$CONFIG" || return 1
+    if [ -s "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+        firewall_ready || firewall_start
+        cru a home_vpn_watchdog "*/2 * * * * /opt/etc/init.d/S97home-vpn start"
+        cru a home_vpn_selector "* * * * * sleep 30; /opt/etc/home-vpn/select-outbound"
+        return 0
+    fi
+    mkdir -p "$(dirname "$PIDFILE")" "$(dirname "$LOG")"
+    : >"$LOG"
+    sing-box run -c "$CONFIG" >>"$LOG" 2>&1 &
+    echo $! > "$PIDFILE"
+    sleep 2
+    kill -0 "$(cat "$PIDFILE")" 2>/dev/null || { rm -f "$PIDFILE"; return 1; }
+
+    ready=0
+    tries=0
+    while [ "$tries" -lt 3 ]; do
+        if /opt/bin/curl -4 -kfsS --max-time 6 --proxy socks5h://127.0.0.1:1087 \
+            -o /dev/null https://1.1.1.1/cdn-cgi/trace; then
+            ready=1
+            break
+        fi
+        tries=$((tries + 1))
+        sleep 2
+    done
+    if [ "$ready" -ne 1 ]; then
+        /opt/bin/curl -4 -kfsS --max-time 8 --proxy socks5h://127.0.0.1:1088 \
+            -o /dev/null https://1.1.1.1/cdn-cgi/trace || return 1
+        /opt/bin/curl -fsS --max-time 3 -X PUT \
+            -H 'Content-Type: application/json' -d '{"name":"awg"}' \
+            http://127.0.0.1:9090/proxies/vpn >/dev/null || return 1
+    fi
+    firewall_start
+    cru a home_vpn_watchdog "*/2 * * * * /opt/etc/init.d/S97home-vpn start"
+    cru a home_vpn_selector "* * * * * sleep 30; /opt/etc/home-vpn/select-outbound"
+    /opt/etc/home-vpn/select-outbound >/dev/null 2>&1 || true
+}
+
+stop_service() {
+    kill_switch_start
+    firewall_stop
+    if [ -s "$PIDFILE" ]; then
+        kill "$(cat "$PIDFILE")" 2>/dev/null || true
+        rm -f "$PIDFILE"
+    fi
+    killall sing-box 2>/dev/null || true
+    cru d home_vpn_watchdog 2>/dev/null || true
+    cru d home_vpn_selector 2>/dev/null || true
+    /opt/etc/init.d/S96awg3-userspace stop 2>/dev/null || true
+}
+
+case "${1:-}" in
+    start) start_service ;;
+    stop) stop_service ;;
+    restart) stop_service; sleep 1; start_service ;;
+    firewall) firewall_start ;;
+    kill-switch) kill_switch_start ;;
+    *) echo "Usage: $0 {start|stop|restart|firewall|kill-switch}" >&2; exit 1 ;;
+esac

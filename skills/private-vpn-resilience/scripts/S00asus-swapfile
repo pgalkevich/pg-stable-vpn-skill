@@ -1,0 +1,20 @@
+#!/bin/sh
+
+SWAPFILE=/opt/swapfile
+
+case "${1:-}" in
+    start)
+        [ -f "$SWAPFILE" ] || exit 0
+        chmod 600 "$SWAPFILE"
+        grep -q "$(readlink -f "$SWAPFILE")" /proc/swaps 2>/dev/null || swapon "$SWAPFILE"
+        [ -w /proc/sys/vm/swappiness ] && echo 10 > /proc/sys/vm/swappiness
+        ;;
+    stop)
+        swapoff "$SWAPFILE" 2>/dev/null || true
+        ;;
+    restart)
+        "$0" stop
+        "$0" start
+        ;;
+    *) echo "Usage: $0 {start|stop|restart}" >&2; exit 1 ;;
+esac

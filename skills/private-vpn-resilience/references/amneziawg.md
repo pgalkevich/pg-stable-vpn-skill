@@ -19,8 +19,9 @@ official repository. Confirm the router firmware can load the bundled module
 for its exact kernel and architecture before importing the protected client
 configuration. The resulting Keenetic interface should be `OpkgTun10` (or the
 existing managed interface discovered during an idempotent retry) and occupy
-third place in the clean-bootstrap `HydraRoute` policy, after `Proxy0` and
-`Proxy1`.
+the place agreed for that deployment in `HydraRoute`. In the VLESS-primary
+example it is third, after `Proxy1` and `Proxy0`; preserve an existing user's
+chosen order.
 
 ## Verification
 
@@ -75,6 +76,33 @@ classifier window permits repeat failures.
 
 Store exported configurations and private keys only in root-owned files with
 mode 0600. Do not place them in this skill or in terminal transcripts.
+
+## Asuswrt-Merlin AWG 3.1 client
+
+Read `references/asuswrt-merlin.md` before deploying on ASUS. Treat presence
+of any AWG 3.1-only field as a hard capability gate: the client daemon and its
+configuration path must accept every field. A legacy addon that reports
+`RUNNING`, creates `awg0`, and transmits bytes is not compatible evidence.
+
+Use a unique peer per concurrently active router. If the supplied profile is
+already active elsewhere, create a new client key and address while preserving
+the server-wide J/S/H/I values, header-protection key, padding, randomized
+timings, trailer, and cookie settings. Verify the server retains the old peer
+and adds the new one before restarting the ASUS client.
+
+The reviewed reusable files are:
+
+- `scripts/asus-awg-uapi-config.go` — protected AWG 3.1 UAPI renderer;
+- `scripts/S96asus-awg3-userspace` — daemon, address, and source-route lifecycle;
+- `scripts/asus-select-outbound` — configurable primary/fallback health logic
+  with strict exit-IP checks and failover/failback hysteresis;
+- `scripts/S97asus-home-vpn-two-protocol` — coordinated sing-box, TPROXY,
+  protected DNS, watchdog, and fail-closed lifecycle.
+
+For Hysteria-primary deployments, the reviewed selector restarts the standby
+AWG userspace service immediately before an actual failover to AWG and probes
+the refreshed path before selection. This mitigates degradation tied to an old
+client UDP flow while avoiding periodic disruption of an active fallback.
 
 ## Additional client for a Keenetic-hosted server
 

@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="Private VPN Resilience — автоматическое развёртывание трёх независимых VPN-транспортов на Ubuntu VPS и Keenetic с Entware." />
+    <meta name="description" content="Private VPN Resilience — развёртывание VPN на Ubuntu VPS и Keenetic или ASUS Merlin с Entware; строгий рабочий профиль с точным IP выхода." />
     <meta name="color-scheme" content="dark light" />
     <meta name="theme-color" content="#0a0814" />
-    <title>Private VPN Resilience — три транспорта, один устойчивый маршрут</title>
+    <title>Private VPN Resilience — Keenetic и ASUS, проверяемый маршрут</title>
     <link rel="stylesheet" href="./promo/styles.css" />
     <script src="./promo/script.js" defer></script>
   </head>
@@ -40,7 +40,7 @@
             <span class="toc-count">08</span>
           </div>
           <nav>
-            <a href="#idea" class="active">Зачем три транспорта</a>
+            <a href="#idea" class="active">Зачем независимые пути</a>
             <a href="#architecture">Как устроена система</a>
             <a href="#requirements">Что понадобится</a>
             <a href="#prepare">Подготовка Keenetic</a>
@@ -59,20 +59,20 @@
           <header class="hero">
             <div class="eyebrow">
               <span>Open source · Agent Skill</span>
-              <span>Ubuntu 24.04 · Keenetic · Entware</span>
+              <span>Ubuntu · Keenetic / ASUS · Entware</span>
             </div>
-            <h1>Три VPN-транспорта.<br /><span>Один устойчивый маршрут.</span></h1>
+            <h1>Независимые VPN-пути.<br /><span>Проверяемый маршрут.</span></h1>
             <p class="lead">
-              Агент разворачивает Hysteria2, VLESS Reality и AmneziaWG, объединяет их
-              политикой HydraRoute и проверяет не зелёные индикаторы, а реальный трафик,
-              переключение при отказе и восстановление после перезапуска.
+              Агент настраивает VPN на Keenetic или ASUS с Entware: полный профиль из
+              трёх транспортов, Hysteria2 + AmneziaWG либо рабочий ASUS только с VLESS.
+              Приёмка проверяет реальный трафик, отказ выбранного пути и восстановление.
             </p>
             <div class="hero-actions">
               <a class="button button-primary" href="#prepare">Начать подготовку</a>
               <a class="button button-ghost" href="./skills/private-vpn-resilience/SKILL.md">Открыть SKILL.md</a>
             </div>
             <div class="hero-meta" aria-label="Ключевые характеристики">
-              <div><strong>3</strong><span>независимых<br />транспорта</span></div>
+              <div><strong>3</strong><span>транспорта<br />в полном профиле</span></div>
               <div><strong>1</strong><span>политика<br />маршрутизации</span></div>
               <div><strong>0</strong><span>тихих обходов<br />через ISP</span></div>
             </div>
@@ -87,25 +87,26 @@
               </div>
               <div class="flow flow-a" aria-hidden="true"><span></span></div>
               <div class="node node-router">
-                <span class="node-kicker">Keenetic + Entware</span>
-                <strong>HydraRoute</strong>
+                <span class="node-kicker">Keenetic / ASUS + Entware</span>
+                <strong>VPN-маршрут</strong>
                 <small>health checks · failover</small>
               </div>
               <div class="flow flow-b" aria-hidden="true"><span></span></div>
               <div class="node node-vps">
                 <span class="node-kicker">Ubuntu VPS</span>
                 <strong>3x-ui</strong>
-                <small>три production-inbound</small>
+                <small>выбранные production-inbound</small>
               </div>
             </div>
             <div class="transport-rail" aria-label="Порядок VPN-транспортов">
-              <div class="transport hy2"><span>01</span><strong>Hysteria2</strong><small>UDP · obfs · port hopping</small></div>
-              <div class="transport vless"><span>02</span><strong>VLESS Reality</strong><small>TCP · TLS-like fallback</small></div>
+              <div class="transport vless"><span>01</span><strong>VLESS Reality</strong><small>TCP · основной путь в примере</small></div>
+              <div class="transport hy2"><span>02</span><strong>Hysteria2</strong><small>UDP · obfs · port hopping</small></div>
               <div class="transport awg"><span>03</span><strong>AmneziaWG</strong><small>kernel tunnel · independent path</small></div>
             </div>
             <figcaption id="topology-caption">
-              При отказе активного пути HydraRoute выбирает следующий. Если недоступны все три,
-              выбранный трафик не уходит напрямую через провайдера.
+              Пример полного Keenetic: VLESS → Hysteria2 → AmneziaWG. Согласованный порядок
+              действующей установки сохраняется. При отказе всех путей выбранный трафик
+              блокируется; в VLESS-only резервного транспорта нет.
             </figcaption>
           </figure>
 
@@ -121,7 +122,7 @@
                 не создаёт настоящего резерва.
               </p>
               <p>
-                Private VPN Resilience строит три технически разных пути и сохраняет их
+                Полный профиль строит три технически разных пути и сохраняет их
                 независимость. Агент меняет по одному транспорту, создаёт rollback anchors
                 и не объявляет успех по статусу <code>RUNNING</code> в панели.
               </p>
@@ -141,13 +142,13 @@
               <div class="stack-list">
                 <article>
                   <span class="stack-number">01</span>
-                  <div><h3>Hysteria2</h3><p>Основной UDP-путь через официальный native-клиент, Salamander и случайную смену портов.</p></div>
-                  <code>Proxy0 · :1082</code>
+                  <div><h3>VLESS Reality</h3><p>Основной TCP-путь в примере Keenetic через официальный Xray и REALITY.</p></div>
+                  <code>Proxy1 · :1083</code>
                 </article>
                 <article>
                   <span class="stack-number">02</span>
-                  <div><h3>VLESS Reality</h3><p>Резервный TCP-путь через официальный Xray и REALITY с проверенным uTLS fingerprint.</p></div>
-                  <code>Proxy1 · :1083</code>
+                  <div><h3>Hysteria2</h3><p>Резервный UDP-путь через официальный native-клиент, Salamander и смену портов.</p></div>
+                  <code>Proxy0 · :1082</code>
                 </article>
                 <article>
                   <span class="stack-number">03</span>
@@ -157,7 +158,15 @@
               </div>
               <div class="callout callout-info">
                 <strong>Основной сценарий</strong>
-                <p>Ubuntu VPS работает публичным сервером, Keenetic — клиентом и маршрутизатором. В скиле также есть процедуры для Keenetic в роли публичного VPN-сервера.</p>
+                <p>Ubuntu VPS работает публичным сервером, Keenetic или ASUS — клиентом и маршрутизатором. В скиле также есть процедуры для Keenetic в роли публичного VPN-сервера.</p>
+              </div>
+              <div class="callout callout-info">
+                <strong>ASUS Merlin / GNUton</strong>
+                <p>sing-box обеспечивает TPROXY и защищённый DNS. По явному выбору доступны Hysteria2 + userspace AmneziaWG без Xray или рабочий VLESS-only через официальный Xray. <a href="./skills/private-vpn-resilience/references/asuswrt-merlin.md">Инструкция ASUS</a>.</p>
+              </div>
+              <div class="callout callout-warning">
+                <strong>Рабочий профиль: один точный российский IPv4</strong>
+                <p>Весь интернет-трафик LAN идёт через согласованный домашний сервер или российский VPS. Каждый путь проверяется по точному IP, DNS защищён VPN, IPv6 проверяется или отключается. При отказе VPN интернет и публичный DNS блокируются. YouTube в эту приёмку не входит. <a href="./skills/private-vpn-resilience/references/work-russian-egress.md">Матрица проверок</a>.</p>
               </div>
             </div>
           </section>
@@ -180,7 +189,7 @@
                 </article>
                 <article>
                   <span class="card-tag">ROUTER</span>
-                  <h3>Keenetic</h3>
+                  <h3>Keenetic / ASUS</h3>
                   <ul>
                     <li>USB и поддержка OPKG</li>
                     <li>Entware в <code>/opt</code></li>
@@ -200,8 +209,8 @@
                 </article>
               </div>
               <div class="callout callout-warning">
-                <strong>Не нужно готовить вручную</strong>
-                <p>3x-ui, AWG Manager, HydraRoute, Xray, Hysteria и туннельные профили установит агент. До его запуска нужен только рабочий Entware на роутере.</p>
+                <strong>Компоненты установит агент</strong>
+                <p>3x-ui, AWG Manager, HydraRoute, Xray, Hysteria и туннельные профили установит агент. Набор зависит от платформы: AWG Manager и HydraRoute используются только на Keenetic. До запуска нужен рабочий Entware на роутере.</p>
               </div>
             </div>
           </section>
@@ -211,6 +220,7 @@
             <div class="section-copy">
               <p class="section-label">Подготовка Keenetic</p>
               <h2>Четыре шага до передачи работы агенту</h2>
+              <div class="callout callout-info"><strong>Если у тебя ASUS</strong><p>Включи custom JFFS scripts и SSH только из LAN, подготовь выделенный USB с ext4 и установи Entware через amtm. Проверь root SSH и /opt после перезагрузки. Следующие четыре шага относятся к Keenetic; для ASUS используй <a href="./skills/private-vpn-resilience/references/asuswrt-merlin.md">отдельную инструкцию</a>.</p></div>
 
               <div class="step">
                 <div class="step-head"><span>1</span><div><h3>Добавьте компоненты KeeneticOS</h3><p>Откройте «Параметры системы → Изменить набор компонентов».</p></div></div>
@@ -315,7 +325,7 @@ cp agents/private-vpn-bootstrap.md \
                 <div><span>03</span><strong>Rollback anchors</strong><p>Резервные копии и манифест до первого изменения.</p></div>
                 <div><span>04</span><strong>Поэтапная установка</strong><p>Один транспорт за раз, без одновременной потери всех путей.</p></div>
               </div>
-              <div class="callout callout-info"><strong>Доступы</strong><p>Передавайте путь к временному приватному SSH-ключу, а не его содержимое. После завершения отзовите ключ или временный пароль.</p></div>
+              <div class="callout callout-info"><strong>Доступы</strong><p>Укажи тип роутера и выбранный профиль; для рабочего выхода — точный российский IPv4 сервера. Передавайте путь к временному приватному SSH-ключу, а не его содержимое. После завершения отзовите ключ или временный пароль.</p></div>
             </div>
           </section>
 
@@ -327,15 +337,16 @@ cp agents/private-vpn-bootstrap.md \
               <p>Агент завершает установку только после прохождения измеримых проверок.</p>
               <div class="verification-list">
                 <div><span>CONFIG</span><p>Конфигурации парсятся, сервисы поднимаются после restart/reboot.</p></div>
-                <div><span>TRAFFIC</span><p>HTTP 204 проходит через каждый выбранный интерфейс.</p></div>
+                <div><span>TRAFFIC</span><p>Нейтральный HTTPS проходит через каждый выбранный путь; проверяются нужные приложения.</p></div>
                 <div><span>LOAD</span><p>Контрольная загрузка не увеличивает UDP drops и <code>RcvbufErrors</code>.</p></div>
                 <div><span>SOAK</span><p>Пять–тридцать минут работы без таймаутов и ложного состояния «up».</p></div>
-                <div><span>FAILOVER</span><p>Отключение активного пути переводит трафик на следующий транспорт.</p></div>
+                <div><span>FAILOVER</span><p>В профиле с резервом отказ основного пути переводит трафик на следующий транспорт.</p></div>
+                <div><span>EXIT / DNS</span><p>В рабочем профиле IP точно совпадает; при отказе всех путей интернет и публичный DNS заблокированы.</p></div>
                 <div><span>RECOVERY</span><p>После возврата сервиса маршрут восстанавливается без ручного ремонта.</p></div>
               </div>
               <div class="acceptance-card">
                 <div class="acceptance-mark">LAN</div>
-                <div><strong>Финальная проверка — с отдельного устройства</strong><p>Ноутбук или телефон должен быть подключён к LAN роутера без локального VPN. Иначе тест покажет работу постороннего туннеля, а не HydraRoute.</p></div>
+                <div><strong>Финальная проверка — с отдельного устройства</strong><p>Ноутбук или телефон должен быть подключён к LAN роутера без локального VPN. Иначе тест покажет работу постороннего туннеля, маршрута через роутер.</p></div>
               </div>
             </div>
           </section>
@@ -347,7 +358,7 @@ cp agents/private-vpn-bootstrap.md \
               <h2>Что решение гарантирует — и чего не обещает</h2>
               <div class="limits-grid">
                 <div><strong>Да</strong><p>Независимые пути, воспроизводимая установка, failover, rollback и диагностика по фактам.</p></div>
-                <div><strong>Нет</strong><p>Вечной устойчивости к новым методам фильтрации и совместимости с любой моделью Keenetic.</p></div>
+                <div><strong>Нет</strong><p>Вечной устойчивости к новым методам фильтрации и совместимости с любой моделью роутера.</p></div>
               </div>
               <p>Параметры, работающие у одного провайдера, могут вести себя иначе в другой сети. Скил сначала собирает измерения и только затем меняет MTU, fingerprint, маскировку или интервалы смены портов.</p>
               <div class="final-cta">

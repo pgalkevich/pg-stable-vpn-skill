@@ -1,0 +1,65 @@
+#!/bin/sh
+
+PATH=/opt/bin:/opt/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+CONFIG=/opt/etc/home-vpn/config.json
+PIDFILE=/opt/var/run/home-vpn.pid
+LOG=/opt/var/log/home-vpn.log
+CHAIN=HOMEVPN
+MARK=0x66
+TABLE=166
+
+firewall_stop() {
+    while iptables -t mangle -D PREROUTING -i br0 -j "$CHAIN" 2>/dev/null; do :; done
+    iptables -t mangle -F "$CHAIN" 2>/dev/null || true
+    iptables -t mangle -X "$CHAIN" 2>/dev/null || true
+    while ip rule del fwmark "$MARK"/0xff table "$TABLE" priority 110 2>/dev/null; do :; done
+    ip route flush table "$TABLE" 2>/dev/null || true
+}
+
+firewall_start() {
+    firewall_stop
+    modprobe xt_TPROXY 2>/dev/null || true
+    modprobe xt_socket 2>/dev/null || true
+    ip route add local 0.0.0.0/0 dev lo table "$TABLE"
+    ip rule add fwmark "$MARK"/0xff table "$TABLE" priority 110
+    iptables -t mangle -N "$CHAIN"
+    for net in 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.168.0.0/16 198.18.0.0/15 224.0.0.0/4 240.0.0.0/4; do
+        iptables -t mangle -A "$CHAIN" -d "$net" -j RETURN
+    done
+    iptables -t mangle -A "$CHAIN" -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port 7893 --tproxy-mark "$MARK"/0xff
+    iptables -t mangle -A "$CHAIN" -p udp -j TPROXY --on-ip 127.0.0.1 --on-port 7893 --tproxy-mark "$MARK"/0xff
+    iptables -t mangle -A PREROUTING -i br0 -j "$CHAIN"
+}
+
+start_service() {
+    [ -r "$CONFIG" ] || { echo "Missing $CONFIG" >&2; return 1; }
+    sing-box check -c "$CONFIG" || return 1
+    if [ -s "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+        return 0
+    fi
+    mkdir -p "$(dirname "$PIDFILE")" "$(dirname "$LOG")"
+    sing-box run -c "$CONFIG" >>"$LOG" 2>&1 &
+    echo $! > "$PIDFILE"
+    sleep 2
+    kill -0 "$(cat "$PIDFILE")" 2>/dev/null || { rm -f "$PIDFILE"; return 1; }
+    firewall_start
+    cru a home_vpn_watchdog "*/2 * * * * /opt/etc/init.d/S97home-vpn start"
+}
+
+stop_service() {
+    firewall_stop
+    if [ -s "$PIDFILE" ]; then
+        kill "$(cat "$PIDFILE")" 2>/dev/null || true
+        rm -f "$PIDFILE"
+    fi
+    killall sing-box 2>/dev/null || true
+    cru d home_vpn_watchdog 2>/dev/null || true
+}
+
+case "${1:-}" in
+    start) start_service ;;
+    stop) stop_service ;;
+    restart) stop_service; sleep 1; start_service ;;
+    firewall) firewall_start ;;
+    *) echo "Usage: $0 {start|stop|restart}" >&2; exit 1 ;;
+esac

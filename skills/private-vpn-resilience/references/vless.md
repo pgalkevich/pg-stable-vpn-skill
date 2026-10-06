@@ -1,6 +1,9 @@
 # VLESS Reality procedure
 
-## Current candidate topology
+## VLESS-primary Keenetic example
+
+Preserve the user-agreed priorities and each account's flow. This example
+uses Vision and Firefox; a separate no-flow account must remain independent.
 
 - VPS: Xray 26.9.9, VLESS TCP 443, REALITY, XTLS Vision.
 - Camouflage target and SNI: `www.samsung.com:443`.
@@ -56,6 +59,14 @@ flow: xtls-rprx-vision
 fingerprint: firefox
 serverName: www.samsung.com
 ```
+
+Also verify the fingerprint exported by the panel, not only the router JSON.
+For this tested Firefox path, keep
+`realitySettings.settings.fingerprint=firefox` in the panel's inbound
+subscription metadata. A working router does not prove that HAPP imported
+the same fingerprint. Refresh/reimport an existing HAPP profile after fixing
+the export, or set Firefox manually. Preserve each client's server-side flow:
+a separate no-flow account must not inherit the router account's Vision.
 
 ## Verification
 
@@ -158,3 +169,30 @@ reuse the `xtls-rprx-vision` setting from the unrelated VPS path on `Proxy1`.
 Validate the config with the installed Xray version. After a controlled service
 restart, require Google HTTP 204 and the expected server egress address through
 the full `t2s3` path.
+
+## ASUS strict-work client
+
+Use the official Xray client behind a sing-box TPROXY frontend on
+Asuswrt-Merlin/GNUton when the user explicitly chooses a single VLESS path.
+Read [asuswrt-merlin.md](asuswrt-merlin.md) for lifecycle and restart gates.
+Keep the protected profile's server port, REALITY identity, SNI, fingerprint,
+and per-account flow; a working no-flow server profile must not inherit Vision
+from the separate Keenetic/VPS example.
+
+Use localhost SOCKS5 (example `127.0.0.1:1090`) as the boundary between Xray
+and sing-box. Route LAN TPROXY, the main acceptance listener (example
+`127.0.0.1:1086`), protected DoH, and the final public route through Xray.
+Install `scripts/S95asus-xray-vless` as `/opt/etc/init.d/S95xray-vless`.
+Resolve the newest stable official release for the router architecture and
+verify its digest; do not pin a replacement USB to a historical binary.
+
+Start Xray before sing-box. After an isolated TLS and exact-exit test, repeat
+restart, 5–30 minute soak, bounded-load, and separate no-local-VPN LAN gates.
+Stopping Xray must fail the main proxy while the LAN-to-WAN kill switch stays
+attached and router-originated management SSH remains reachable. Disable the
+old selector cron in single-path mode; keep timestamped rollback copies of
+previous transports until LAN acceptance. There is no fallback transport.
+
+When an exit-IP service contradicts all transport results, require agreement
+from independent services (for example AWS Check IP, ident.me, and icanhazip)
+rather than changing working routing based on one oracle.

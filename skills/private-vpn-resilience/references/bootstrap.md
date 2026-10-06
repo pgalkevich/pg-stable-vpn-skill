@@ -14,11 +14,15 @@ and report the hardware/firmware limitation.
 
 The completed topology is:
 
-1. `Proxy0`: SOCKS5 to the native Hysteria2 client on `127.0.0.1:1082`, first priority.
-2. `Proxy1`: SOCKS5 to the official Xray VLESS Reality client on `127.0.0.1:1083`, second priority.
+1. `Proxy1`: SOCKS5 to the official Xray VLESS Reality client on `127.0.0.1:1083`, primary.
+2. `Proxy0`: SOCKS5 to the native Hysteria2 client on `127.0.0.1:1082`, first fallback.
 3. `OpkgTun10`: native AmneziaWG, third priority.
 4. Keenetic policy `HydraRoute` permits those interfaces in that order and explicitly has no ISP fallback.
 5. HydraRoute Neo sends only the domains and CIDRs from the bundled assets through that policy.
+
+This is an example order. Preserve the user's agreed transport priorities;
+interface numbers do not determine priority. On an existing deployment,
+verify the selected route with `show ip policy HydraRoute`.
 
 ## Current-stable version resolution
 
@@ -27,7 +31,7 @@ Resolve every version immediately before installation:
 - 3x-ui: newest non-prerelease GitHub release from `MHSanaei/3x-ui` or the official stable installer without a version argument.
 - Xray-core: newest non-prerelease GitHub release from `XTLS/Xray-core` for the router architecture.
 - Hysteria: newest non-prerelease GitHub release from `apernet/hysteria` for the router architecture.
-- AWG Manager: newest package in its official stable repository.
+- AWG Manager: newest package in the official stable repository installed by `repo.hoaxisr.ru/install.sh`.
 - HydraRoute Neo and HRweb: newest packages exposed by the official Ground-Zerro stable feed and `install-neo.sh`.
 - Ubuntu and Entware dependencies: newest versions in their configured stable repositories.
 
@@ -225,15 +229,15 @@ interface Proxy1
     up
 
 ip policy HydraRoute
-    permit global Proxy0
     permit global Proxy1
+    permit global Proxy0
     permit global OpkgTun10
     no permit global ISP
 ```
 
 The descriptions are examples; preserve an existing operator-supplied name on
-an idempotent retry. The routing order above is authoritative for a clean
-bootstrap.
+an idempotent retry. The routing order above is the VLESS-primary example; preserve
+the user-agreed priorities.
 
 Install the three files from `assets/HydraRoute/` into
 `/opt/etc/HydraRoute/`, preserving mode and backing up any user-edited lists.

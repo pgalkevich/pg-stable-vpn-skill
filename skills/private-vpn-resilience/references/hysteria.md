@@ -167,6 +167,16 @@ full t2s0 request = HTTP 204
 If the UI says Sing-box is `RUNNING` but `Proxy0` points to 1080, treat the
 installation as failed and restore the invariant before any soak test.
 
+## Fallback is not an instability fix
+
+Selecting VLESS as primary does not prove that Hysteria stalls are resolved.
+Preserve the native client, port hopping, and its health profile while
+collecting correlated request timings, Ping Check events, QUIC logs, UDP
+receive-buffer counters, and packet captures. A short failed health check
+without QUIC reconnect or growing drops proves neither DPI nor a false probe.
+Keep the diagnosis open until measurements identify the cause; do not apply
+speculative tuning merely because the transport is now a fallback.
+
 ## Known failure signature
 
 The rejected sing-box client failure presents as:

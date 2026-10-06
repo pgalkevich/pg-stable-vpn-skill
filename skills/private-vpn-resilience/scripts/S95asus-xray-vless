@@ -1,0 +1,57 @@
+#!/bin/sh
+PATH=/opt/bin:/opt/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+unset LD_LIBRARY_PATH
+
+BIN=/opt/home-vpn/bin/xray-vless
+CONFIG=/opt/etc/home-vpn/xray-vless.json
+PIDFILE=/opt/var/run/xray-vless.pid
+LOG=/opt/var/log/xray-vless.log
+
+start_service() {
+    [ -x "$BIN" ] || { echo "Missing $BIN" >&2; return 1; }
+    [ -r "$CONFIG" ] || { echo "Missing $CONFIG" >&2; return 1; }
+    "$BIN" run -test -config "$CONFIG" || return 1
+    if [ -s "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+        return 0
+    fi
+    mkdir -p "$(dirname "$PIDFILE")" "$(dirname "$LOG")"
+    : >"$LOG"
+    "$BIN" run -config "$CONFIG" >>"$LOG" 2>&1 &
+    echo $! >"$PIDFILE"
+    sleep 2
+    if ! kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+        rm -f "$PIDFILE"
+        return 1
+    fi
+}
+
+stop_service() {
+    if [ -s "$PIDFILE" ]; then
+        pid="$(cat "$PIDFILE")"
+        kill "$pid" 2>/dev/null || true
+        tries=0
+        while kill -0 "$pid" 2>/dev/null && [ "$tries" -lt 10 ]; do
+            sleep 1
+            tries=$((tries + 1))
+        done
+        kill -9 "$pid" 2>/dev/null || true
+    fi
+    rm -f "$PIDFILE"
+}
+
+status_service() {
+    if [ -s "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+        echo "xray-vless running pid=$(cat "$PIDFILE")"
+        return 0
+    fi
+    echo "xray-vless stopped"
+    return 1
+}
+
+case "${1:-}" in
+    start) start_service ;;
+    stop) stop_service ;;
+    restart) stop_service; start_service ;;
+    status) status_service ;;
+    *) echo "Usage: $0 {start|stop|restart|status}" >&2; exit 2 ;;
+esac

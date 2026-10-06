@@ -1,0 +1,155 @@
+#!/bin/sh
+
+PATH=/opt/bin:/opt/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+# Asus cron may inject firmware library paths. Entware curl then loads the
+# firmware libcurl, loses SOCKS support, and reports false tunnel failures.
+unset LD_LIBRARY_PATH
+
+SETTINGS=/opt/etc/home-vpn/selector.conf
+[ -r "$SETTINGS" ] && . "$SETTINGS"
+
+API=http://127.0.0.1:9090
+STATE=/opt/var/run/home-vpn-selector.state
+LOCK=/opt/var/run/home-vpn-selector.lock
+LOG=/opt/var/log/home-vpn-selector.log
+PRIMARY=${PRIMARY_OUTBOUND:-hy2}
+EXPECTED_IP=${EXPECTED_EXIT_IPV4:-}
+FAIL_THRESHOLD=${FAIL_THRESHOLD:-2}
+RECOVER_THRESHOLD=${RECOVER_THRESHOLD:-15}
+TRACE=https://1.1.1.1/cdn-cgi/trace
+SECONDARY=https://www.gstatic.com/generate_204
+
+case "$PRIMARY" in
+    awg)
+        FALLBACK_OUTBOUND=hy2
+        PRIMARY_PROXY=socks5h://127.0.0.1:1088
+        FALLBACK_PROXY=socks5h://127.0.0.1:1087
+        ;;
+    hy2)
+        FALLBACK_OUTBOUND=awg
+        PRIMARY_PROXY=socks5h://127.0.0.1:1087
+        FALLBACK_PROXY=socks5h://127.0.0.1:1088
+        ;;
+    *) echo "Unsupported PRIMARY_OUTBOUND: $PRIMARY" >&2; exit 2 ;;
+esac
+
+mkdir "$LOCK" 2>/dev/null || exit 0
+trap 'rmdir "$LOCK" 2>/dev/null' EXIT HUP INT TERM
+
+rotate_log() {
+    [ -f "$LOG" ] || return 0
+    size=$(wc -c <"$LOG" 2>/dev/null || echo 0)
+    [ "$size" -le 262144 ] || mv -f "$LOG" "$LOG.1"
+}
+
+write_log() {
+    rotate_log
+    printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" >>"$LOG"
+}
+
+current() {
+    /opt/bin/curl -fsS --max-time 3 "$API/proxies/vpn" 2>/dev/null |
+        jq -r '.now // empty'
+}
+
+probe() {
+    proxy=$1
+    err_file=/tmp/home-vpn-probe.$$
+    output=$(/opt/bin/curl -4 -kfsS --connect-timeout 4 --max-time 10 \
+        --proxy "$proxy" "$TRACE" 2>"$err_file")
+    trace_rc=$?
+    observed=$(printf '%s\n' "$output" | sed -n 's/^ip=//p' | head -n 1)
+    if [ -n "$observed" ] && { [ -z "$EXPECTED_IP" ] || [ "$observed" = "$EXPECTED_IP" ]; }; then
+        PROBE_DETAIL="trace_rc=0,ip=$observed"
+        rm -f "$err_file"
+        return 0
+    fi
+
+    /opt/bin/curl -4 -kfsS --connect-timeout 4 --max-time 10 \
+        --proxy "$proxy" -o /dev/null "$SECONDARY" 2>>"$err_file"
+    secondary_rc=$?
+    error=$(tr '\n' '_' <"$err_file" 2>/dev/null | tr ' ' '_' | cut -c1-160)
+    PROBE_DETAIL="trace_rc=$trace_rc,secondary_rc=$secondary_rc,ip=${observed:-none},error=${error:-none}"
+    rm -f "$err_file"
+    # In strict-egress mode, a reachable but unexpected address is unhealthy.
+    [ -z "$EXPECTED_IP" ] || return 1
+    return "$secondary_rc"
+}
+
+select_outbound() {
+    /opt/bin/curl -fsS --max-time 3 -X PUT \
+        -H 'Content-Type: application/json' \
+        -d "{\"name\":\"$1\"}" "$API/proxies/vpn" >/dev/null
+}
+
+prepare_selection() {
+    target=$1
+    proxy=$2
+    [ "$target" = awg ] || return 0
+    /opt/etc/init.d/S96awg3-userspace restart >/dev/null 2>&1 || return 1
+    sleep 1
+    probe "$proxy"
+}
+
+primary_fail=0
+primary_ok=0
+fallback_fail=0
+[ -r "$STATE" ] && . "$STATE"
+selected=$(current)
+[ -n "$selected" ] || { write_log 'result=api-unavailable'; exit 1; }
+
+if probe "$PRIMARY_PROXY"; then primary_up=1; else primary_up=0; fi
+primary_detail=$PROBE_DETAIL
+if probe "$FALLBACK_PROXY"; then fallback_up=1; else fallback_up=0; fi
+fallback_detail=$PROBE_DETAIL
+action=none
+
+if [ "$selected" = "$PRIMARY" ]; then
+    primary_ok=0
+    fallback_fail=0
+    if [ "$primary_up" -eq 1 ]; then
+        primary_fail=0
+    else
+        primary_fail=$((primary_fail + 1))
+        if [ "$primary_fail" -ge "$FAIL_THRESHOLD" ] && [ "$fallback_up" -eq 1 ]; then
+            if prepare_selection "$FALLBACK_OUTBOUND" "$FALLBACK_PROXY" && \
+                select_outbound "$FALLBACK_OUTBOUND"; then
+                selected=$FALLBACK_OUTBOUND
+                action=failover-to-$FALLBACK_OUTBOUND
+                primary_ok=0
+                [ "$FALLBACK_OUTBOUND" != awg ] || fallback_detail="refreshed,$PROBE_DETAIL"
+            fi
+        fi
+    fi
+elif [ "$selected" = "$FALLBACK_OUTBOUND" ]; then
+    primary_fail=0
+    if [ "$fallback_up" -eq 1 ]; then fallback_fail=0; else fallback_fail=$((fallback_fail + 1)); fi
+    if [ "$primary_up" -eq 1 ]; then primary_ok=$((primary_ok + 1)); else primary_ok=0; fi
+    if [ "$fallback_fail" -ge "$FAIL_THRESHOLD" ] && [ "$primary_up" -eq 1 ]; then
+        if prepare_selection "$PRIMARY" "$PRIMARY_PROXY" && select_outbound "$PRIMARY"; then
+            selected=$PRIMARY
+            action=emergency-to-$PRIMARY
+            primary_ok=0
+            [ "$PRIMARY" != awg ] || primary_detail="refreshed,$PROBE_DETAIL"
+        fi
+    elif [ "$primary_ok" -ge "$RECOVER_THRESHOLD" ]; then
+        if prepare_selection "$PRIMARY" "$PRIMARY_PROXY" && select_outbound "$PRIMARY"; then
+            selected=$PRIMARY
+            action=failback-to-$PRIMARY
+            primary_ok=0
+            [ "$PRIMARY" != awg ] || primary_detail="refreshed,$PROBE_DETAIL"
+        fi
+    fi
+else
+    write_log "result=unknown-selector selected=$selected primary_up=$primary_up fallback_up=$fallback_up"
+    exit 1
+fi
+
+umask 077
+{
+    echo "primary_fail=$primary_fail"
+    echo "primary_ok=$primary_ok"
+    echo "fallback_fail=$fallback_fail"
+} >"$STATE"
+
+write_log "selected=$selected primary=$PRIMARY primary_up=$primary_up fallback=$FALLBACK_OUTBOUND fallback_up=$fallback_up primary_fail=$primary_fail primary_ok=$primary_ok fallback_fail=$fallback_fail action=$action primary_probe=$primary_detail fallback_probe=$fallback_detail"

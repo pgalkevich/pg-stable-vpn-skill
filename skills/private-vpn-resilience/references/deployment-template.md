@@ -10,8 +10,9 @@ subscription URIs, or complete client configurations.
 - Deployment date:
 - VPS provider and region:
 - VPS OS and architecture:
-- Router model, KeeneticOS version, kernel, and architecture:
+- Router model, KeeneticOS or Merlin/GNUton version, kernel, and architecture:
 - Entware mount and free space:
+- Selected profile and intended exit policy:
 
 ## Installed versions
 
@@ -21,14 +22,18 @@ Record the version, official source URL, and verified digest for:
 - router Xray:
 - router Hysteria:
 - AWG Manager:
-- HydraRoute Neo and HRweb:
+- HydraRoute Neo and HRweb (Keenetic):
+- sing-box and userspace AWG (ASUS):
 
 ## Managed topology
 
 - Hysteria2 server port/range and Keenetic interface:
 - VLESS Reality server port and Keenetic interface:
 - AmneziaWG server port/range and Keenetic interface:
-- HydraRoute priority and ISP fallback state:
+- HydraRoute or ASUS selector priority and ISP fallback state:
+- Single-path routing, if selected:
+- Expected exit-IP record location (private only):
+- Protected DNS, IPv6 handling, and kill-switch state:
 - Ping Check profiles and targets:
 
 Do not record public or private addresses in a copy intended for publication.
@@ -36,7 +41,7 @@ Do not record public or private addresses in a copy intended for publication.
 ## Rollback anchors
 
 - VPS backup paths and creation time:
-- Keenetic startup configuration backup:
+- Router startup configuration and JFFS hook backups:
 - Entware configuration backups:
 - Exact rollback order:
 
@@ -49,6 +54,7 @@ Do not record public or private addresses in a copy intended for publication.
 - Failover and recovery results:
 - Reboot-style restart results:
 - Separate LAN-client acceptance result:
+- Strict-work exact-exit and all-transports-down DNS/Internet test:
 
 ## Follow-up
 

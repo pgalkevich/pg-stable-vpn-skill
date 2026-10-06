@@ -1,0 +1,97 @@
+#!/bin/sh
+
+PATH=/opt/bin:/opt/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+DAEMON=/opt/home-vpn/bin/amneziawg-go-armv7
+CONFIGURATOR=/opt/home-vpn/bin/awg-uapi-config-armv7
+CONFIG=/opt/etc/home-vpn/awg3.conf
+IFACE=awg3
+TABLE=167
+RULE_PRIORITY=16600
+PIDFILE=/opt/var/run/awg3-userspace.pid
+LOG=/opt/var/log/awg3-userspace.log
+SOCKET=/var/run/amneziawg/awg3.sock
+
+config_value() {
+    awk -F= -v wanted="$1" '
+        $1 ~ "^[[:space:]]*" wanted "[[:space:]]*$" {
+            value=$2
+            sub(/^[[:space:]]+/, "", value)
+            sub(/[[:space:]]+$/, "", value)
+            print value
+            exit
+        }
+    ' "$CONFIG"
+}
+
+ADDRESS="$(config_value Address | cut -d, -f1 | sed 's/[[:space:]]//g')"
+SOURCE="${ADDRESS%/*}"
+MTU="$(config_value MTU)"
+[ -n "$MTU" ] || MTU=1395
+
+route_stop() {
+    while ip rule del pref "$RULE_PRIORITY" 2>/dev/null; do :; done
+    ip route flush table "$TABLE" 2>/dev/null || true
+}
+
+route_ready() {
+    ip rule show | grep -q "^${RULE_PRIORITY}:.*from ${SOURCE} lookup ${TABLE}" || return 1
+    ip route show table "$TABLE" | grep -q "^default dev ${IFACE}" || return 1
+}
+
+stop_service() {
+    route_stop
+    if [ -s "$PIDFILE" ]; then
+        kill "$(cat "$PIDFILE")" 2>/dev/null || true
+        rm -f "$PIDFILE"
+    fi
+    sleep 1
+    ip link del "$IFACE" 2>/dev/null || true
+    rm -f "$SOCKET"
+}
+
+start_service() {
+    [ -x "$DAEMON" ] || { echo "Missing $DAEMON" >&2; return 1; }
+    [ -x "$CONFIGURATOR" ] || { echo "Missing $CONFIGURATOR" >&2; return 1; }
+    [ -r "$CONFIG" ] || { echo "Missing $CONFIG" >&2; return 1; }
+
+    if [ -s "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null && [ -S "$SOCKET" ]; then
+        if ! route_ready; then
+            route_stop
+            ip route add table "$TABLE" default dev "$IFACE"
+            ip rule add pref "$RULE_PRIORITY" from "$SOURCE"/32 lookup "$TABLE"
+        fi
+        return 0
+    fi
+
+    stop_service
+    mkdir -p "$(dirname "$PIDFILE")" "$(dirname "$LOG")"
+    : >"$LOG"
+    WG_PROCESS_FOREGROUND=1 LOG_LEVEL=error nohup "$DAEMON" -f "$IFACE" >>"$LOG" 2>&1 &
+    echo $! >"$PIDFILE"
+
+    tries=0
+    while [ ! -S "$SOCKET" ] && [ "$tries" -lt 20 ]; do
+        sleep 1
+        tries=$((tries + 1))
+    done
+    [ -S "$SOCKET" ] || { stop_service; echo "AWG UAPI socket did not appear" >&2; return 1; }
+
+    "$CONFIGURATOR" "$IFACE" "$CONFIG" || { stop_service; return 1; }
+    ip address add "$ADDRESS" dev "$IFACE"
+    ip link set mtu "$MTU" up dev "$IFACE"
+    ip route add table "$TABLE" default dev "$IFACE"
+    ip rule add pref "$RULE_PRIORITY" from "$SOURCE"/32 lookup "$TABLE"
+    ip route flush cache
+}
+
+status_service() {
+    [ -s "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null && [ -S "$SOCKET" ] && ip link show "$IFACE" >/dev/null 2>&1
+}
+
+case "${1:-}" in
+    start) start_service ;;
+    stop) stop_service ;;
+    restart) stop_service; start_service ;;
+    status) status_service ;;
+    *) echo "Usage: $0 {start|stop|restart|status}" >&2; exit 1 ;;
+esac

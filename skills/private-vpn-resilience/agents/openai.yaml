@@ -1,4 +1,4 @@
 interface:
   display_name: "Private VPN Resilience"
-  short_description: "Bootstrap and maintain a resilient three-protocol private VPN"
-  default_prompt: "Use $private-vpn-resilience to deploy or maintain a stable three-protocol VPN on an Ubuntu VPS and an Entware-enabled Keenetic without exposing credentials."
+  short_description: "Bootstrap and maintain a resilient private VPN"
+  default_prompt: "From SSH access to a VPN server and an Entware-enabled Keenetic or Asuswrt-Merlin router, deploy or maintain the newest stable VPN stack with the selected transport profile without exposing credentials; when work mode is requested, enforce one exact Russian exit IP for every LAN device with fail-closed behavior."
